@@ -1,174 +1,188 @@
+import re
 import socket
-import threading
-import datetime
+import random
 
-# Dicionário para armazenar informações dos clientes conectados
+# Função para enviar mensagem com rdt3.0
+def send_message_rdt(message_str, client_socket,client_address):
+    seq_num = 0
+    while True:
+        # Adiciona o número de sequência à mensagem
+        message = f"ACK-{message_str}"
+        # Envia a mensagem para o servidor
+        if random.random() > 0.2:
+            client_socket.sendto(message.encode(), client_address)
+            # Espera pelo ACK
+            try:
+                client_socket.settimeout(2)
+                ack, _ = client_socket.recvfrom(2048)
+                if ack.decode() == f"ACK":
+                    break
+            except socket.timeout:
+                pass
+        # Verifica se o número máximo de tentativas foi atingido
+        seq_num += 1
+        if seq_num > 3:
+            print("Nao foi possivel enviar a mensagem.")
+            break
+
+# Função para receber mensagem com rdt3.0
+def receive_message_rdt(client_socket):
+    while True:
+        # Recebe a mensagem do servidor
+        try:
+            client_socket.settimeout(2)
+            message, client_address = client_socket.recvfrom(2048)
+            message_str = message.decode()
+            # Verifica se a mensagem é um ACK
+            if message_str.startswith("ACK"):
+                # Envia o ACK de volta para o servidor
+                ack = f"ACK"
+                client_socket.sendto(ack.encode(), client_address)
+                break
+        except socket.timeout:
+            pass
+
+    part = message_str.split("-")
+    if len(part) >= 2 and part[1] != "":
+        return part[1][2:-1], client_address
+    else:
+        return None,None
+
+# Define as informações do servidor
+server_address = ('localhost', 5000)
+server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+server_socket.bind(server_address)
+
+# Define as variáveis do servidor
 clients = {}
-friends_lists = {}
-ban_votes = {}
-banned_clients = []
+ban_list = {}
 
-# Função para verificar se a maioria votou para banir um usuário
-def check_ban_vote(username):
-    connected_clients = len(clients)
-    required_votes = (connected_clients // 2) 
-    if ban_votes.get(username, 0) >= required_votes:
-        return True
-    return False
+# Função para enviar mensagem para todos os clientes
+def send_to_all(message, sender_address):
+    for client_address in clients:
+        if client_address != sender_address:
+            client_socket, client_username, friend_list = clients[client_address]
+            if clients[sender_address][1] in friend_list:
+                message = re.sub(r'(/~)', r'/[amigo] ~', message)  # Adicione [amigo] à mensagem
+            send_message_rdt(message.encode(),client_socket, client_address)
 
-# Função para lidar com as mensagens recebidas de um cliente
-def handle_client(client_socket, client_address):
-    try:
-        while True:
-            # Pega o nome do usuario que foi informado pelo cliente
-            username = client_socket.recv(1024).decode().strip()
-
-            # Verifica se o nome de usuário já está em uso
-            if username in clients:
-                client_socket.send("Nome de usuário já está em uso. Escolha outro nome. ".encode())
-                client_socket.send("Digite seu nome de usuário: ".encode())
-            else:
-                break
-                
+def conectaCliente(message, client_address, client_socket):
+    # Verifica se o nome do usuário já está sendo usado
+    username = message.split(" ")[0]
+    if username in [client[1] for client in clients.values()]:
+        print(f"Nome de usuario '{username}' ja esta em uso.")
+        # Envie uma mensagem de erro de nome de usuário para o cliente
+        error_message = "Nome de usuario ja esta em uso. Escolha outro nome."
+        send_message_rdt(error_message.encode(), client_socket, client_address)
+    else:
         # Adiciona o cliente à lista de clientes
-        clients[username] = {
-            "socket": client_socket,
-            "address": client_address,
-        }
-
-        # Inicializa a lista de amigos do cliente
-        friends_lists[username] = []
-
-        print(f"Cliente {username} conectado desde {client_address[0]}:{client_address[1]}")
-
-        # Notifica os outros clientes sobre a nova conexão
+        clients[client_address] = (client_socket, username, [])
+        print(f"Cliente {client_address} conectado como {username}.")
+        # Envia mensagem de alerta da nova presença
         alert_message = f"{username} entrou na sala."
-        for client, info in clients.items():
-                if client != username:
-                    info["socket"].send(alert_message.encode())
-  
+        send_to_all(alert_message, client_address)
+       
 
-        # Loop para receber e transmitir mensagens
-        while True:
-            message = client_socket.recv(1024).decode()
-            if not message:
-                break
+# Função para lidar com as mensagens recebidas
+def handle_message(message, client_address):
+    global clients, ban_list
+    if message == "bye":
+        # Remove o cliente da lista de clientes
+        del clients[client_address]
+        print(f"Cliente {client_address} desconectado.")
+        # Envia mensagem de alerta da saída do cliente
+        alert_message = f"{client_address} saiu da sala."
+        send_to_all(alert_message, client_address)
 
-            # Verifica se o cliente enviou uma solicitação de amizade
-            if message.lower().startswith("addtomylist "):
-                friend_username = message[12:].strip()
-                if friend_username in clients and friend_username != username:
-                    friends_lists[username].append(friend_username)
-                    client_socket.send(f"Você adicionou {friend_username} à sua lista de amigos.".encode())
-                    continue
+    elif message.startswith("list"):
+        user_list = ", ".join([clients[addr][1] for addr in clients])
+        client_socket = clients[client_address][0]
+        send_message_rdt(user_list.encode(), client_socket,client_address)
+
+    elif message.startswith("mylist"):
+        friend_list = clients[client_address][2]
+        if friend_list:
+            friend_list_str = ", ".join(friend_list)
+            client_socket = clients[client_address][0]
+            send_message_rdt( ("Lista de amizade: " + friend_list_str).encode(), client_socket, client_address)
+        else:
+            client_socket = clients[client_address][0]
+            send_message_rdt("Voce nao possui amigos na lista.".encode(), client_socket, client_address)
+
+
+    elif message.startswith("addtomylist"):
+        parts = message.split()
+        if len(parts) > 1:
+            friend_username = parts[1]
+            if friend_username in [clients[addr][1] for addr in clients]:
+                client_socket = clients[client_address][0]
+                if friend_username not in clients[client_address][2]:  
+                    clients[client_address][2].append(friend_username)
+                    send_message_rdt(f"[amigo adicionado] {friend_username}".encode(), client_socket, client_address)
                 else:
-                    client_socket.send(f"O usuário {friend_username} não foi encontrado ou é você mesmo.".encode())
-                    continue
-            # Verifica se o cliente quer remover uma amizade
-            elif message.lower().startswith("rmvfrommylist "):
-                friend_to_remove = message[14:].strip()
-                if friend_to_remove in friends_lists[username]:
-                    friends_lists[username].remove(friend_to_remove)
-                    client_socket.send(f"Você removeu {friend_to_remove} da sua lista de amigos.".encode())
-                    continue
+                    send_message_rdt(f"{friend_username} ja esta na sua lista de amizade.".encode(), client_socket, client_address)
+            else:
+                client_socket = clients[client_address][0]
+                send_message_rdt(f"{friend_username} nao esta na sala.".encode(), client_socket, client_address)
+
+    elif message.startswith("rmvfrommylist"):
+        parts = message.split()
+        if len(parts) > 1:
+            friend_username = parts[1]
+            friend_list = clients[client_address][2]
+            if friend_username in friend_list:
+                friend_list.remove(friend_username)  # Remove o amigo da lista
+                client_socket = clients[client_address][0]
+                send_message_rdt(f"[amigo removido] {friend_username}".encode(), client_socket, client_address)
+            else:
+                client_socket = clients[client_address][0]
+                send_message_rdt(f"{friend_username} nao esta na sua lista de amizade.".encode(), client_socket, client_address)
+
+
+    elif message.startswith("ban"):
+        parts = message.split()
+        if len(parts) > 1:
+            user_to_ban = parts[1]
+            if user_to_ban in [clients[addr][1] for addr in clients]:
+                if user_to_ban not in ban_list:
+                    ban_list[user_to_ban] = {'votes': 1, 'threshold': len(clients) // 2 + 1}
                 else:
-                    client_socket.send(f"{friend_to_remove} não está na sua lista de amigos.".encode())
-                    continue
-            
-            # Verifica se o cliente enviou o comando "list" e informa os usuarios online
-            if message.lower() == "list":
-                online_users = ", ".join(clients.keys())
-                client_socket.send(f"Usuários online: {online_users}".encode())
-                continue
-            # Verifica se o cliente enviou o comando "mylist"
-            elif message.lower() == "mylist":
-                friends = ", ".join(friends_lists[username])
-                client_socket.send(f"Sua lista de amigos: {friends}".encode())
-                continue
-            # Verifica se o cliente enviou o comando "ban"
-            elif message.lower().startswith("ban "):
-                # Define a quantidade de votos necessarios para banir
-                connected_clients = len(clients)
-                required_votes = (connected_clients // 2) + 1
-                user_to_ban = message[4:].strip()
-                if user_to_ban in clients:
-                    if user_to_ban != username:  # Verifica se o cliente está tentando se banir
-                        if check_ban_vote(user_to_ban):
-                            banned_clients.append(user_to_ban)
-                            # Banindo o cliente
-                            clients[user_to_ban]["socket"].send("Você foi banido do chat.".encode())
-                            clients[user_to_ban]["socket"].close()
-                            # Notifica todos os clientes sobre o resultado da votação
-                            for client in clients.values():
-                                if client != clients[user_to_ban]:
-                                    vote_message = f"O usuário [{user_to_ban}] foi banido"
-                                    client["socket"].send(vote_message.encode())
-                            # Limpa os votos para este usuário
-                            del ban_votes[user_to_ban]
-                            continue
-                        else:
-                            # Registra o voto do cliente
-                            if user_to_ban not in ban_votes:
-                                ban_votes[user_to_ban] = 1
-                            else:
-                                ban_votes[user_to_ban] += 1
-                            client_socket.send(f"Você votou para banir o usuário {user_to_ban}.".encode())
-                            continue
-                    else:
-                        client_socket.send("Você não pode se banir.".encode())
-                        continue
-                else:
-                    client_socket.send(f"O usuário {user_to_ban} não foi encontrado.".encode())
-                    continue
+                    ban_list[user_to_ban]['votes'] += 1
 
-            # Obtém a hora e data atual do servidor
-            current_time = datetime.datetime.now().strftime("%d-%m-%Y %H:%M:%S")
+                total_votes = ban_list[user_to_ban]['votes']
+                threshold = ban_list[user_to_ban]['threshold']
 
-            # Verifica todos os clientes exceto a si mesmo
-            for client, info in clients.items():
-                if client != username:
-                    # Verifica se o remetente é amigo do receptor
-                    friend_tag = "[amigo] " if username in friends_lists[client] else ""
+                send_to_all(f"[ {user_to_ban} ] ban {total_votes}/{threshold}", client_address)
 
-                    # Mensagem que vai pro usuario
-                    personal_message = f"{client_address[0]}:{client_address[1]}/~{friend_tag}{username}: {message} {current_time}"
-    
-            # Mensagem que fica no chat geral
-            formatted_message = f"{client_address[0]}:{client_address[1]}/~{username}: {message} {current_time}"
+                if total_votes >= threshold:
+                    clients_to_remove = []
+                    for addr in clients:
+                        if clients[addr][1] == user_to_ban:
+                            clients_to_remove.append(addr)
 
-            # Exibe a mensagem no servidor
-            print(formatted_message)
+                    for addr in clients_to_remove:
+                        del clients[addr]
 
-            # Transmite a mensagem para todos os outros clientes
-            for client, info in clients.items():
-                if client != username:
-                    info["socket"].send(personal_message.encode())
+                    del ban_list[user_to_ban]
+                    send_to_all(f"[ {user_to_ban} ] foi banido da sala.", client_address)
 
-    except Exception as e:
-        print(f"Erro na conexão com {client_address}: {e}")
-    finally:
-        # Remove o cliente da lista de clientes e fecha o socket
-        del clients[username]
-        client_socket.close()
-        print(f"Cliente {username} desconectado")
-        alert_message = f"{username} se desconectou."
-        for client, info in clients.items():
-                if client != username:
-                    info["socket"].send(alert_message.encode())
+    else:
+        # Envia a mensagem para todos os clientes
+        send_to_all(message, client_address)
 
-# Configurações do servidor
-host = '0.0.0.0'  # Escuta em todas as interfaces de rede
-port = 12345  # Porta para conexões
-
-# Criação do socket do servidor
-server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server_socket.bind((host, port))
-server_socket.listen(5)  # Permitir até 5 conexões pendentes
-
-print(f"Servidor ouvindo em {host}:{port}")
-
-# Loop principal para aceitar conexões de clientes
+# Loop principal do servidor
 while True:
-    client_socket, client_address = server_socket.accept()
-    client_handler = threading.Thread(target=handle_client, args=(client_socket, client_address))
-    client_handler.start()
+    # Recebe uma mensagem de um cliente
+    message, client_address = receive_message_rdt(server_socket)
+
+    if message is None and client_address is None:
+        continue
+    
+    elif(message.__contains__("entrou na sala.")):
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        client_socket.connect(client_address)
+        conectaCliente(message,client_address,client_socket)
+    else:
+        # Verifica se o cliente está na lista de clientes
+        if client_address in clients:
+            handle_message(message, client_address)
