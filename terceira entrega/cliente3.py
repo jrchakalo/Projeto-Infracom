@@ -8,7 +8,7 @@ def send_message_rdt(message_str, client_socket, server_address):
     seq_num = 0
     while True:
         # Adiciona o número de sequência à mensagem
-        message = f"ACK:{message_str}"
+        message = f"ACK-{message_str}"
         # Envia a mensagem para o servidor
         if random.random() > 0.2:
             client_socket.sendto(message.encode(), server_address)
@@ -43,7 +43,7 @@ def receive_message_rdt(client_socket):
         except socket.timeout:
             pass
     
-    part = message_str.split(":")
+    part = message_str.split("-")
     if len(part) >= 2 and part[1] != "":
         return part[1][2:-1]
     else:
@@ -131,14 +131,14 @@ while True:
             my_list()
         elif message_str.startswith("addtomylist"):
             if(message_str.split(" ")[1] == ""):
-                print("Voce precisa informar o nome de um usuario para adiciona-lo na sua lista de amigos.")
+                print("Voce precisa informar o nome de um usuario para adicionalo na sua lista de amigos.")
             elif(message_str.split(" ")[1] == username):
                 print("Voca não pode adicionar voce mesmo na sua lista de amigos.")
             else:
                 add_to_my_list(message_str.split(" ")[1])
         elif message_str.startswith("rmvfrommylist"):
             if(message_str.split(" ")[1] == ""):
-                print("Voce precisa informar o nome de um usuario para remove-lo da sua lista de amigos.")
+                print("Voce precisa informar o nome de um usuario para removelo da sua lista de amigos.")
             elif(message_str.split(" ")[1] == username):
                 print("Voce não pode remover você mesmo da sua lista de amigos.")
             else:
