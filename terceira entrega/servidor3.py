@@ -7,7 +7,7 @@ def send_message_rdt(message_str, client_socket,client_address):
     seq_num = 0
     while True:
         # Adiciona o número de sequência à mensagem
-        message = f"ACK:{message_str}"
+        message = f"ACK-{message_str}"
         # Envia a mensagem para o servidor
         if random.random() > 0.2:
             client_socket.sendto(message.encode(), client_address)
@@ -42,7 +42,7 @@ def receive_message_rdt(client_socket):
         except socket.timeout:
             pass
 
-    part = message_str.split(":")
+    part = message_str.split("-")
     if len(part) >= 2 and part[1] != "":
         return part[1][2:-1], client_address
     else:
@@ -104,7 +104,7 @@ def handle_message(message, client_address):
         if friend_list:
             friend_list_str = ", ".join(friend_list)
             client_socket = clients[client_address][0]
-            send_message_rdt( ("Lista de amizade - " + friend_list_str).encode(), client_socket, client_address)
+            send_message_rdt( ("Lista de amizade: " + friend_list_str).encode(), client_socket, client_address)
         else:
             client_socket = clients[client_address][0]
             send_message_rdt("Voce nao possui amigos na lista.".encode(), client_socket, client_address)
