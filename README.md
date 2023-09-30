@@ -19,15 +19,6 @@
 Este projeto trata-se de um sistema de chat implementado com o paradigma cliente-servidor. O objetivo principal é criar um ambiente de chat de linha de comando que permite a comunicação entre múltiplos clientes simultaneamente, mantendo a confiabilidade da transmissão de dados utilizando o protocolo RDT 3.0 e sockets UDP.
 
 
-## Funcionalidades Principais
-
-- Conexão à sala de chat com identificação do usuário.
-- Exibição em tempo real de mensagens no formato: `<IP>:<PORTA>/~<nome_usuario>: <mensagem> <hora-data>`.
-- Listagem de usuários na sala.
-- Gerenciamento de uma lista de amigos.
-- Possibilidade de banir usuários da sala, com votação da comunidade.
- 
-
 ## Integrantes
 
 <table>
@@ -40,6 +31,15 @@ Este projeto trata-se de um sistema de chat implementado com o paradigma cliente
 
 <td align="center"><a href="https://github.com/thaisnevest"><img src="https://avatars.githubusercontent.com/u/56198772?=4" width="100px;" alt=""/><br /><sub><b>Thaís Neves</b></sub></a><br/></td></tr>
  </table>
+
+
+## Funcionalidades Principais
+
+- Conexão à sala de chat com identificação do usuário.
+- Exibição em tempo real de mensagens no formato: `<IP>:<PORTA>/~<nome_usuario>: <mensagem> <hora-data>`.
+- Listagem de usuários na sala.
+- Gerenciamento de uma lista de amigos.
+- Possibilidade de banir usuários da sala, com votação da comunidade.
 
 
 ## Como Usar
